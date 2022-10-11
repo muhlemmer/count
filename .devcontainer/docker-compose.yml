@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+
+  dev:
+    build:
+      context: .
+    networks:
+      - database
+    ports:
+      - 127.0.0.1:7000:6060
+    volumes:
+      - ..:/workspace/count:cached
+      - ${HOME}/.ssh:/home/vscode/.ssh
+      - ${HOME}/.netrc:/home/vscode/.netrc:ro
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    command: /bin/bash -c "cd /workspace/count && godoc -http :6060"
+    env_file:
+      - ../.env
+
+  db:
+    image: postgres:latest
+    restart: on-failure
+    networks:
+      - database
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: muhlemmer
+
+networks:
+  database:

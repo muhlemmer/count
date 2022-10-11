@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package count.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Method defines all HTTP standard method types.
+// GRPC value can be used when a request is received
+// over a gRPC connection.
+enum Method {
+  UNSPECIFIED = 0;
+    
+  // HTTP request methods
+  CONNECT = 1;
+  DELETE = 2;
+  GET = 3;
+  HEAD = 4;
+  OPTIONS = 5;
+  POST = 6;
+  PUT = 7;
+  TRACE = 8;
+  
+  // gRPC requests
+  GRPC = 100;
+}
+
+// AddRequest is a datapoint for request counting.
+message AddRequest {
+  // Method of the request can be a HTTP method or GRPC.
+  Method method = 1;
+  
+  // Path of the request, or name of the gRPC method.
+  // This value is required.
+  string path = 2;
+
+  // Timestamp of the request, using the server's wall clock.
+  // This value is required.
+  google.protobuf.Timestamp request_timestamp = 3;
+}
+
+message AddResponse {}
+
+service CountService {
+  // Add datapoints for request counting, over a streaming RPC.
+  // Datapoints are stored asynchronous, to prevent blocking at the client side.
+  // The stream is terminated by the server after the first error,
+  // which might result in some datapoints not being stored.
+  rpc Add(stream AddRequest) returns (AddResponse) {}
+}
