@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"os"
 	"strings"
@@ -31,7 +30,6 @@ func testMain(m *testing.M) int {
 	testCTX = logger.WithContext(ctx)
 	errCTX, cancel = context.WithCancel(testCTX)
 	cancel()
-	//hi
 
 	migrDSN := strings.Replace(dsn, "postgresql", "cockroachdb", 1)
 

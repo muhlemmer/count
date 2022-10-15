@@ -4,23 +4,14 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/muhlemmer/count/internal/timer"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
 	"github.com/rs/zerolog"
 )
-
-func randomTimer(min, max time.Duration) <-chan time.Time {
-	for {
-		d := time.Duration(rand.Int63n(int64(max)))
-		if d >= min {
-			return time.After(d)
-		}
-	}
-}
 
 type multiError []error
 
@@ -75,7 +66,7 @@ retry:
 		select {
 		case <-ctx.Done():
 			break retry
-		case <-randomTimer(min, max):
+		case <-timer.RandomTimer(min, max):
 			// retry
 		}
 	}
