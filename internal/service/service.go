@@ -11,6 +11,8 @@ import (
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type CountServer struct {
@@ -94,4 +96,15 @@ func (s *CountServer) Add(as countv1.CountService_AddServer) error {
 	wg.Wait()
 	close(errChan)
 	return <-conclusion
+}
+
+func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDailyTotalsRequest) (*countv1.CountDailyTotalsResponse, error) {
+	counts, err := s.db.CountDailyMethodTotals(ctx, req.GetDate().AsTime())
+	if err != nil {
+		return nil, status.Error(codes.Internal, "database query error")
+	}
+
+	return &countv1.CountDailyTotalsResponse{
+		MethodCounts: counts,
+	}, nil
 }

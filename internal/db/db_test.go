@@ -2,16 +2,19 @@ package db
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v4/log/zerologadapter"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/muhlemmer/count/internal/db/migrations"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -31,12 +34,19 @@ func testMain(m *testing.M) int {
 	errCTX, cancel = context.WithCancel(testCTX)
 	cancel()
 
-	migrDSN := strings.Replace(dsn, "postgresql", "cockroachdb", 1)
+	migrDSN := strings.Replace(dsn, "postgresql", "pgx", 1)
 
 	migrations.Down(migrDSN)
 	migrations.Up(migrDSN)
 
-	db, err := pgxpool.Connect(testCTX, dsn)
+	conf, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		panic(err)
+	}
+
+	conf.ConnConfig.Logger = zerologadapter.NewLogger(logger)
+
+	db, err := pgxpool.ConnectConfig(testCTX, conf)
 	if err != nil {
 		panic(err)
 	}
@@ -162,6 +172,83 @@ func TestDB_InsertMethodRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := testDB.InsertMethodRequest(tt.args.ctx, tt.args.method, tt.args.path, tt.args.requestTS); (err != nil) != tt.wantErr {
 				t.Errorf("DB.InsertMethodRequest() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDB_CountDailyMethodTotals(t *testing.T) {
+	begin := time.Unix(1666000000, 0)
+	end := begin.Add(24 * time.Hour)
+
+	err := testDB.InsertMethodRequestTestdata(testCTX, 1000, begin, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type args struct {
+		ctx context.Context
+		day time.Time
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []*countv1.MethodCount
+		wantErr bool
+	}{
+		{
+			name:    "context error",
+			args:    args{errCTX, begin},
+			wantErr: true,
+		},
+		{
+			name: "success",
+			args: args{testCTX, begin},
+			want: []*countv1.MethodCount{
+				{Method: countv1.Method_POST, Path: "/users", Count: 52},
+				{Method: countv1.Method_POST, Path: "/items", Count: 47},
+				{Method: countv1.Method_DELETE, Path: "/actions", Count: 48},
+				{Method: countv1.Method_GRPC, Path: "/actions", Count: 52},
+				{Method: countv1.Method_GET, Path: "/items", Count: 41},
+				{Method: countv1.Method_GRPC, Path: "/users", Count: 44},
+				{Method: countv1.Method_GET, Path: "/users", Count: 51},
+				{Method: countv1.Method_DELETE, Path: "/users", Count: 57},
+				{Method: countv1.Method_GET, Path: "/actions", Count: 35},
+				{Method: countv1.Method_GRPC, Path: "/items", Count: 47},
+				{Method: countv1.Method_DELETE, Path: "/items", Count: 52},
+				{Method: countv1.Method_POST, Path: "/actions", Count: 54},
+			},
+		},
+		{
+			name:    "conflict",
+			args:    args{testCTX, begin},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "conflict" {
+				err := testDB.InsertMethodRequest(testCTX, countv1.Method_POST, "/items", begin)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got, err := testDB.CountDailyMethodTotals(tt.args.ctx, tt.args.day)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DB.CountDailyMethodTotals() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			for _, msg := range got {
+				t.Log(msg)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("DB.CountDailyMethodTotals() =\n%v\nwant\n%v", got, tt.want)
+			}
+			for i, want := range tt.want {
+				if !proto.Equal(got[i], want) {
+					t.Errorf("DB.CountDailyMethodTotals() #%d =\n%v\nwant\n%v", i, got[i], want)
+				}
 			}
 		})
 	}

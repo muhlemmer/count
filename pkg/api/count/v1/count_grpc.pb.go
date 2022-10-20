@@ -27,6 +27,13 @@ type CountServiceClient interface {
 	// The stream is terminated by the server after the first error,
 	// which might result in some datapoints not being stored.
 	Add(ctx context.Context, opts ...grpc.CallOption) (CountService_AddClient, error)
+	// CountDailyTotals triggers a count of daily requests.
+	// Request entries for specified date are deleted, while being counted against
+	// method and path pairs.
+	// This method is meant to be called once a day in a cron-like job.
+	// Repeated calls for the same date will not overwrite existing counts,
+	// and may fail if additional request entries are found for a method and path pair.
+	CountDailyTotals(ctx context.Context, in *CountDailyTotalsRequest, opts ...grpc.CallOption) (*CountDailyTotalsResponse, error)
 }
 
 type countServiceClient struct {
@@ -71,6 +78,15 @@ func (x *countServiceAddClient) CloseAndRecv() (*AddResponse, error) {
 	return m, nil
 }
 
+func (c *countServiceClient) CountDailyTotals(ctx context.Context, in *CountDailyTotalsRequest, opts ...grpc.CallOption) (*CountDailyTotalsResponse, error) {
+	out := new(CountDailyTotalsResponse)
+	err := c.cc.Invoke(ctx, "/count.v1.CountService/CountDailyTotals", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CountServiceServer is the server API for CountService service.
 // All implementations must embed UnimplementedCountServiceServer
 // for forward compatibility
@@ -80,6 +96,13 @@ type CountServiceServer interface {
 	// The stream is terminated by the server after the first error,
 	// which might result in some datapoints not being stored.
 	Add(CountService_AddServer) error
+	// CountDailyTotals triggers a count of daily requests.
+	// Request entries for specified date are deleted, while being counted against
+	// method and path pairs.
+	// This method is meant to be called once a day in a cron-like job.
+	// Repeated calls for the same date will not overwrite existing counts,
+	// and may fail if additional request entries are found for a method and path pair.
+	CountDailyTotals(context.Context, *CountDailyTotalsRequest) (*CountDailyTotalsResponse, error)
 	mustEmbedUnimplementedCountServiceServer()
 }
 
@@ -89,6 +112,9 @@ type UnimplementedCountServiceServer struct {
 
 func (UnimplementedCountServiceServer) Add(CountService_AddServer) error {
 	return status.Errorf(codes.Unimplemented, "method Add not implemented")
+}
+func (UnimplementedCountServiceServer) CountDailyTotals(context.Context, *CountDailyTotalsRequest) (*CountDailyTotalsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CountDailyTotals not implemented")
 }
 func (UnimplementedCountServiceServer) mustEmbedUnimplementedCountServiceServer() {}
 
@@ -129,13 +155,36 @@ func (x *countServiceAddServer) Recv() (*AddRequest, error) {
 	return m, nil
 }
 
+func _CountService_CountDailyTotals_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CountDailyTotalsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CountServiceServer).CountDailyTotals(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/count.v1.CountService/CountDailyTotals",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CountServiceServer).CountDailyTotals(ctx, req.(*CountDailyTotalsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CountService_ServiceDesc is the grpc.ServiceDesc for CountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var CountService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "count.v1.CountService",
 	HandlerType: (*CountServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CountDailyTotals",
+			Handler:    _CountService_CountDailyTotals_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Add",

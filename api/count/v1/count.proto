@@ -40,10 +40,45 @@ message AddRequest {
 
 message AddResponse {}
 
+// CountDailyTotalsRequest determines data points
+// to be counted.
+message CountDailyTotalsRequest {
+  // date where the timestamp falls in.
+  // The timestamp is rounded down to whole days.
+  // So hours, minutes, seconds etc are discarded.
+  google.protobuf.Timestamp date = 1;
+}
+
+// MethodCount gives a request count for a method and path pair.
+message MethodCount {
+  // Method of the request can be a HTTP method or GRPC.
+  Method method = 1;
+  
+  // Path of the request, or name of the gRPC method.
+  string path = 2;
+
+  // Amuont of times each method and path pair was requested.
+  int32 count = 3;
+}
+
+// CountDailyTotalsResponse returns the method and path pair
+// request counts for the requested date.
+message CountDailyTotalsResponse {
+  repeated MethodCount method_counts = 1;
+}
+
 service CountService {
   // Add datapoints for request counting, over a streaming RPC.
   // Datapoints are stored asynchronous, to prevent blocking at the client side.
   // The stream is terminated by the server after the first error,
   // which might result in some datapoints not being stored.
   rpc Add(stream AddRequest) returns (AddResponse) {}
+
+  // CountDailyTotals triggers a count of daily requests.
+  // Request entries for specified date are deleted, while being counted against
+  // method and path pairs.
+  // This method is meant to be called once a day in a cron-like job.
+  // Repeated calls for the same date will not overwrite existing counts,
+  // and may fail if additional request entries are found for a method and path pair.
+  rpc CountDailyTotals(CountDailyTotalsRequest) returns (CountDailyTotalsResponse) {}
 }
