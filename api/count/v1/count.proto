@@ -57,13 +57,32 @@ message MethodCount {
   // Path of the request, or name of the gRPC method.
   string path = 2;
 
-  // Amuont of times each method and path pair was requested.
+  // Amount of times each method and path pair was requested.
   int32 count = 3;
+
+  // Date of the counted requests.
+  google.protobuf.Timestamp date = 4;
 }
 
 // CountDailyTotalsResponse returns the method and path pair
 // request counts for the requested date.
 message CountDailyTotalsResponse {
+  repeated MethodCount method_counts = 1;
+}
+
+// ListDailyTotalsRequest describes an time interval,
+// between which records are returned.
+// The timestamps are rounded down to whole days.
+// So hours, minutes, seconds etc are discarded.
+message ListDailyTotalsRequest {
+  // from date of the time interval, inclusive.
+  google.protobuf.Timestamp from = 1;
+
+  // till date of the time interval, inclusive.
+  google.protobuf.Timestamp till = 2;
+}
+
+message ListDailyTotalsResponse {
   repeated MethodCount method_counts = 1;
 }
 
@@ -81,4 +100,10 @@ service CountService {
   // Repeated calls for the same date will not overwrite existing counts,
   // and may fail if additional request entries are found for a method and path pair.
   rpc CountDailyTotals(CountDailyTotalsRequest) returns (CountDailyTotalsResponse) {}
+
+  // ListDailyTotals returns a list of daily counts for each method and path pair.
+  // Only entries which are previously created by CountDailyTotals can be returned.
+  // When the requested interval does not result in any entries,
+  // a NotFound error will be returned.
+  rpc ListDailyTotals(ListDailyTotalsRequest) returns (ListDailyTotalsResponse) {}
 }

@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -119,9 +118,6 @@ retry:
 	return errs
 }
 
-//go:embed queries/insert_method_request.sql
-var insertMethodRequestSQL string
-
 // InsertMethodRequest inserts a request for a certain method and path.
 // Inserts are retried untill the operation succeeds without error
 // or when the passed context expires.
@@ -176,14 +172,11 @@ func (db *DB) InsertMethodRequestTestdata(ctx context.Context, amount int, begin
 	return nil
 }
 
-//go:embed queries/count_daily_method_totals.sql
-var countDailyMethodTotalsSQL string
-
 // CountDailyMethodTotals deletes entries from count.requests for the given day.
 // Deleted entries are counted for each method and path pair and inserted in the
 // count.daily_method_totals table.
 // The resulting count enties are returned.
-func (db *DB) CountDailyMethodTotals(ctx context.Context, day time.Time) (results []*countv1.MethodCount, err error) {
+func (db *DB) CountDailyMethodTotals(ctx context.Context, day time.Time) ([]*countv1.MethodCount, error) {
 	const errDesc = "count daily method totals"
 
 	rows, err := db.pool.Query(ctx, countDailyMethodTotalsSQL, pgtype.Date{
@@ -193,30 +186,71 @@ func (db *DB) CountDailyMethodTotals(ctx context.Context, day time.Time) (result
 	if err = statusError(err, errDesc); err != nil {
 		return nil, err
 	}
-	defer func() {
-		rows.Close()
-		if rerr := rows.Err(); rerr != nil && err == nil {
-			err = statusError(rerr, errDesc)
-		}
-	}()
+	defer rows.Close()
 
-	for rows.Next() {
-		var (
-			method pgtype.Varchar
-			path   pgtype.Varchar
-			total  pgtype.Int4
-		)
+	results, err := scanMethodCountRows(rows)
+	return results, statusError(err, errDesc)
+}
 
-		if err = statusError(rows.Scan(&method, &path, &total), errDesc); err != nil {
-			return nil, err
-		}
-
-		results = append(results, &countv1.MethodCount{
-			Method: countv1.Method(countv1.Method_value[method.String]),
-			Path:   path.String,
-			Count:  total.Int,
-		})
+// InsertDailyTotalTestdata populates count.requests with amount of records,
+// using DB.InsertMethodRequestTestdata.
+// It then calls DB.CountDailyMethodTotals for each day in the interval begin-int.
+// The data is detirminstic pseudo-random.
+// This function is mainly used for unit testing.
+func (db *DB) InsertDailyTotalsTestdata(ctx context.Context, amount int, begin, end time.Time) error {
+	err := db.InsertMethodRequestTestdata(ctx, amount, begin, end)
+	if err != nil {
+		return err
 	}
 
-	return results, nil
+	ec := make(chan error)
+
+	var n int
+	for current := begin; current.Before(end); current = current.Add(24 * time.Hour) {
+		n++
+		go func(day time.Time) {
+			ctx, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
+
+			_, err := db.CountDailyMethodTotals(ctx, day)
+			select {
+			case ec <- err:
+			default:
+			}
+			ec <- err
+		}(current)
+	}
+
+	for i := 0; i < n; i++ {
+		if err = <-ec; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ListDailyTotals selects entries from count.daily_method_totals in the
+// date interval of from-till.
+// Both dates are inclusive.
+func (db *DB) ListDailyTotals(ctx context.Context, from, till time.Time) ([]*countv1.MethodCount, error) {
+	const errDesc = "list daily totals"
+
+	rows, err := db.pool.Query(ctx, listDailyTotalsSQL,
+		pgtype.Date{
+			Time:   from,
+			Status: pgtype.Present,
+		},
+		pgtype.Date{
+			Time:   till,
+			Status: pgtype.Present,
+		},
+	)
+	if err = statusError(err, errDesc); err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results, err := scanMethodCountRows(rows)
+	return results, statusError(err, errDesc)
 }

@@ -34,6 +34,11 @@ type CountServiceClient interface {
 	// Repeated calls for the same date will not overwrite existing counts,
 	// and may fail if additional request entries are found for a method and path pair.
 	CountDailyTotals(ctx context.Context, in *CountDailyTotalsRequest, opts ...grpc.CallOption) (*CountDailyTotalsResponse, error)
+	// ListDailyTotals returns a list of daily counts for each method and path pair.
+	// Only entries which are previously created by CountDailyTotals can be returned.
+	// When the requested interval does not result in any entries,
+	// a NotFound error will be returned.
+	ListDailyTotals(ctx context.Context, in *ListDailyTotalsRequest, opts ...grpc.CallOption) (*ListDailyTotalsResponse, error)
 }
 
 type countServiceClient struct {
@@ -87,6 +92,15 @@ func (c *countServiceClient) CountDailyTotals(ctx context.Context, in *CountDail
 	return out, nil
 }
 
+func (c *countServiceClient) ListDailyTotals(ctx context.Context, in *ListDailyTotalsRequest, opts ...grpc.CallOption) (*ListDailyTotalsResponse, error) {
+	out := new(ListDailyTotalsResponse)
+	err := c.cc.Invoke(ctx, "/count.v1.CountService/ListDailyTotals", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CountServiceServer is the server API for CountService service.
 // All implementations must embed UnimplementedCountServiceServer
 // for forward compatibility
@@ -103,6 +117,11 @@ type CountServiceServer interface {
 	// Repeated calls for the same date will not overwrite existing counts,
 	// and may fail if additional request entries are found for a method and path pair.
 	CountDailyTotals(context.Context, *CountDailyTotalsRequest) (*CountDailyTotalsResponse, error)
+	// ListDailyTotals returns a list of daily counts for each method and path pair.
+	// Only entries which are previously created by CountDailyTotals can be returned.
+	// When the requested interval does not result in any entries,
+	// a NotFound error will be returned.
+	ListDailyTotals(context.Context, *ListDailyTotalsRequest) (*ListDailyTotalsResponse, error)
 	mustEmbedUnimplementedCountServiceServer()
 }
 
@@ -115,6 +134,9 @@ func (UnimplementedCountServiceServer) Add(CountService_AddServer) error {
 }
 func (UnimplementedCountServiceServer) CountDailyTotals(context.Context, *CountDailyTotalsRequest) (*CountDailyTotalsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CountDailyTotals not implemented")
+}
+func (UnimplementedCountServiceServer) ListDailyTotals(context.Context, *ListDailyTotalsRequest) (*ListDailyTotalsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDailyTotals not implemented")
 }
 func (UnimplementedCountServiceServer) mustEmbedUnimplementedCountServiceServer() {}
 
@@ -173,6 +195,24 @@ func _CountService_CountDailyTotals_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CountService_ListDailyTotals_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDailyTotalsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CountServiceServer).ListDailyTotals(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/count.v1.CountService/ListDailyTotals",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CountServiceServer).ListDailyTotals(ctx, req.(*ListDailyTotalsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CountService_ServiceDesc is the grpc.ServiceDesc for CountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -183,6 +223,10 @@ var CountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CountDailyTotals",
 			Handler:    _CountService_CountDailyTotals_Handler,
+		},
+		{
+			MethodName: "ListDailyTotals",
+			Handler:    _CountService_ListDailyTotals_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

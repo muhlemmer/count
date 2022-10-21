@@ -101,10 +101,32 @@ func (s *CountServer) Add(as countv1.CountService_AddServer) error {
 func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDailyTotalsRequest) (*countv1.CountDailyTotalsResponse, error) {
 	counts, err := s.db.CountDailyMethodTotals(ctx, req.GetDate().AsTime())
 	if err != nil {
-		return nil, status.Error(codes.Internal, "database query error")
+		return nil, err
 	}
 
 	return &countv1.CountDailyTotalsResponse{
+		MethodCounts: counts,
+	}, nil
+}
+
+func (s *CountServer) ListDailyTotals(ctx context.Context, req *countv1.ListDailyTotalsRequest) (*countv1.ListDailyTotalsResponse, error) {
+	var (
+		from = req.GetFrom()
+		till = req.GetTill()
+	)
+	if from == nil || till == nil {
+		return nil, status.Error(codes.InvalidArgument, "a valid date interval is required")
+	}
+
+	counts, err := s.db.ListDailyTotals(ctx, from.AsTime(), till.AsTime())
+	if err != nil {
+		return nil, err
+	}
+	if len(counts) == 0 {
+		return nil, status.Error(codes.NotFound, "no results found")
+	}
+
+	return &countv1.ListDailyTotalsResponse{
 		MethodCounts: counts,
 	}, nil
 }

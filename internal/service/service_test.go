@@ -249,18 +249,18 @@ func TestCountServer_CountDailyTotals(t *testing.T) {
 			args: args{testCTX, &countv1.CountDailyTotalsRequest{Date: timestamppb.New(begin)}},
 			want: &countv1.CountDailyTotalsResponse{
 				MethodCounts: []*countv1.MethodCount{
-					{Method: countv1.Method_POST, Path: "/users", Count: 52},
-					{Method: countv1.Method_POST, Path: "/items", Count: 47},
-					{Method: countv1.Method_DELETE, Path: "/actions", Count: 48},
-					{Method: countv1.Method_GRPC, Path: "/actions", Count: 52},
-					{Method: countv1.Method_GET, Path: "/items", Count: 41},
-					{Method: countv1.Method_GRPC, Path: "/users", Count: 44},
-					{Method: countv1.Method_GET, Path: "/users", Count: 51},
-					{Method: countv1.Method_DELETE, Path: "/users", Count: 57},
-					{Method: countv1.Method_GET, Path: "/actions", Count: 35},
-					{Method: countv1.Method_GRPC, Path: "/items", Count: 47},
-					{Method: countv1.Method_DELETE, Path: "/items", Count: 52},
-					{Method: countv1.Method_POST, Path: "/actions", Count: 54},
+					{Method: countv1.Method_POST, Path: "/users", Count: 52, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_POST, Path: "/items", Count: 47, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_DELETE, Path: "/actions", Count: 48, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GRPC, Path: "/actions", Count: 52, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GET, Path: "/items", Count: 41, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GRPC, Path: "/users", Count: 44, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GET, Path: "/users", Count: 51, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_DELETE, Path: "/users", Count: 57, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GET, Path: "/actions", Count: 35, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_GRPC, Path: "/items", Count: 47, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_DELETE, Path: "/items", Count: 52, Date: timestamppb.New(time.Unix(1665964800, 0))},
+					{Method: countv1.Method_POST, Path: "/actions", Count: 54, Date: timestamppb.New(time.Unix(1665964800, 0))},
 				},
 			},
 		},
@@ -276,7 +276,120 @@ func TestCountServer_CountDailyTotals(t *testing.T) {
 				return
 			}
 			if !proto.Equal(got, tt.want) {
-				t.Errorf("CountServer.CountDailyTotals() = %v, want %v", got, tt.want)
+				t.Errorf("CountServer.CountDailyTotals() =\n%v\nwant\n%v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountServer_ListDailyTotals(t *testing.T) {
+	var (
+		begin = time.Date(1986, 3, 25, 0, 0, 0, 0, time.UTC)
+		end   = begin.Add(10 * 24 * time.Hour)
+		day1  = begin.Add(24 * time.Hour)
+		day2  = begin.Add(48 * time.Hour)
+	)
+
+	err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, begin, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results := []*countv1.MethodCount{
+		{Date: timestamppb.New(day1), Path: "/actions", Method: countv1.Method_DELETE, Count: 52},
+		{Date: timestamppb.New(day1), Path: "/actions", Method: countv1.Method_GET, Count: 27},
+		{Date: timestamppb.New(day1), Path: "/actions", Method: countv1.Method_GRPC, Count: 41},
+		{Date: timestamppb.New(day1), Path: "/actions", Method: countv1.Method_POST, Count: 33},
+		{Date: timestamppb.New(day1), Path: "/items", Method: countv1.Method_DELETE, Count: 51},
+		{Date: timestamppb.New(day1), Path: "/items", Method: countv1.Method_GET, Count: 48},
+		{Date: timestamppb.New(day1), Path: "/items", Method: countv1.Method_GRPC, Count: 35},
+		{Date: timestamppb.New(day1), Path: "/items", Method: countv1.Method_POST, Count: 35},
+		{Date: timestamppb.New(day1), Path: "/users", Method: countv1.Method_DELETE, Count: 48},
+		{Date: timestamppb.New(day1), Path: "/users", Method: countv1.Method_GET, Count: 45},
+		{Date: timestamppb.New(day1), Path: "/users", Method: countv1.Method_GRPC, Count: 27},
+		{Date: timestamppb.New(day1), Path: "/users", Method: countv1.Method_POST, Count: 37},
+		{Date: timestamppb.New(day2), Path: "/actions", Method: countv1.Method_DELETE, Count: 42},
+		{Date: timestamppb.New(day2), Path: "/actions", Method: countv1.Method_GET, Count: 30},
+		{Date: timestamppb.New(day2), Path: "/actions", Method: countv1.Method_GRPC, Count: 42},
+		{Date: timestamppb.New(day2), Path: "/actions", Method: countv1.Method_POST, Count: 44},
+		{Date: timestamppb.New(day2), Path: "/items", Method: countv1.Method_DELETE, Count: 40},
+		{Date: timestamppb.New(day2), Path: "/items", Method: countv1.Method_GET, Count: 41},
+		{Date: timestamppb.New(day2), Path: "/items", Method: countv1.Method_GRPC, Count: 39},
+		{Date: timestamppb.New(day2), Path: "/items", Method: countv1.Method_POST, Count: 35},
+		{Date: timestamppb.New(day2), Path: "/users", Method: countv1.Method_DELETE, Count: 32},
+		{Date: timestamppb.New(day2), Path: "/users", Method: countv1.Method_GET, Count: 50},
+		{Date: timestamppb.New(day2), Path: "/users", Method: countv1.Method_GRPC, Count: 39},
+		{Date: timestamppb.New(day2), Path: "/users", Method: countv1.Method_POST, Count: 35},
+	}
+
+	type args struct {
+		ctx context.Context
+		req *countv1.ListDailyTotalsRequest
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *countv1.ListDailyTotalsResponse
+		wantErr bool
+	}{
+		{
+			name:    "empty req",
+			args:    args{testCTX, nil},
+			wantErr: true,
+		},
+		{
+			name: "empty from",
+			args: args{testCTX, &countv1.ListDailyTotalsRequest{
+				From: timestamppb.New(day1),
+			}},
+			wantErr: true,
+		},
+		{
+			name: "empty till",
+			args: args{testCTX, &countv1.ListDailyTotalsRequest{
+				Till: timestamppb.New(day2),
+			}},
+			wantErr: true,
+		},
+		{
+			name: "context error",
+			args: args{errCTX, &countv1.ListDailyTotalsRequest{
+				From: timestamppb.New(day1),
+				Till: timestamppb.New(day2),
+			}},
+			wantErr: true,
+		},
+		{
+			name: "not found",
+			args: args{testCTX, &countv1.ListDailyTotalsRequest{
+				From: timestamppb.Now(),
+				Till: timestamppb.Now(),
+			}},
+			wantErr: true,
+		},
+		{
+			name: "success",
+			args: args{testCTX, &countv1.ListDailyTotalsRequest{
+				From: timestamppb.New(day1),
+				Till: timestamppb.New(day2),
+			}},
+			want: &countv1.ListDailyTotalsResponse{
+				MethodCounts: results,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &CountServer{
+				db: testDB,
+			}
+			got, err := s.ListDailyTotals(tt.args.ctx, tt.args.req)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CountServer.ListDailyTotals() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !proto.Equal(got, tt.want) {
+				t.Errorf("CountServer.ListDailyTotals() = \n%v\nwant\n%v", got, tt.want)
 			}
 		})
 	}

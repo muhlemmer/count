@@ -7,9 +7,9 @@ with deleted as (
         select $1::date, method_id, count(*)
         from deleted
         group by method_id
-    returning method_id, total
+    returning day, method_id, total
 )
-select method, path, total
+select day, method, path, total
 from inserted
 left join count.methods
 on methods.id = inserted.method_id
