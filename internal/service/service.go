@@ -9,6 +9,7 @@ import (
 
 	"github.com/muhlemmer/count/internal/db"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
+	"github.com/muhlemmer/count/pkg/date"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -99,7 +100,12 @@ func (s *CountServer) Add(as countv1.CountService_AddServer) error {
 }
 
 func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDailyTotalsRequest) (*countv1.CountDailyTotalsResponse, error) {
-	counts, err := s.db.CountDailyMethodTotals(ctx, req.GetDate().AsTime())
+	countDate := req.GetDate()
+	if countDate == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "date required")
+	}
+
+	counts, err := s.db.CountDailyMethodTotals(ctx, date.Time(countDate))
 	if err != nil {
 		return nil, err
 	}
@@ -110,15 +116,17 @@ func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDa
 }
 
 func (s *CountServer) ListDailyTotals(ctx context.Context, req *countv1.ListDailyTotalsRequest) (*countv1.ListDailyTotalsResponse, error) {
-	var (
-		from = req.GetFrom()
-		till = req.GetTill()
-	)
-	if from == nil || till == nil {
-		return nil, status.Error(codes.InvalidArgument, "a valid date interval is required")
+	startDate := req.GetStartDate()
+	if startDate == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "start_date required")
 	}
 
-	counts, err := s.db.ListDailyTotals(ctx, from.AsTime(), till.AsTime())
+	endDate := req.GetEndDate()
+	if endDate == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "end_date required")
+	}
+
+	counts, err := s.db.ListDailyTotals(ctx, date.Time(startDate), date.Time(endDate))
 	if err != nil {
 		return nil, err
 	}

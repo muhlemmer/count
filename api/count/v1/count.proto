@@ -3,12 +3,14 @@ syntax = "proto3";
 package count.v1;
 
 import "google/protobuf/timestamp.proto";
+import "google/type/date.proto";
 
 // Method defines all HTTP standard method types.
 // GRPC value can be used when a request is received
 // over a gRPC connection.
+// buf:lint:ignore ENUM_VALUE_PREFIX
 enum Method {
-  UNSPECIFIED = 0;
+  METHOD_UNSPECIFIED = 0;
     
   // HTTP request methods
   CONNECT = 1;
@@ -43,10 +45,8 @@ message AddResponse {}
 // CountDailyTotalsRequest determines data points
 // to be counted.
 message CountDailyTotalsRequest {
-  // date where the timestamp falls in.
-  // The timestamp is rounded down to whole days.
-  // So hours, minutes, seconds etc are discarded.
-  google.protobuf.Timestamp date = 1;
+  // date which each timestamp should be part of.
+  google.type.Date date = 1;
 }
 
 // MethodCount gives a request count for a method and path pair.
@@ -61,7 +61,7 @@ message MethodCount {
   int32 count = 3;
 
   // Date of the counted requests.
-  google.protobuf.Timestamp date = 4;
+  google.type.Date date = 4;
 }
 
 // CountDailyTotalsResponse returns the method and path pair
@@ -75,11 +75,11 @@ message CountDailyTotalsResponse {
 // The timestamps are rounded down to whole days.
 // So hours, minutes, seconds etc are discarded.
 message ListDailyTotalsRequest {
-  // from date of the time interval, inclusive.
-  google.protobuf.Timestamp from = 1;
+  // start date of the interval, inclusive.
+  google.type.Date start_date = 1;
 
-  // till date of the time interval, inclusive.
-  google.protobuf.Timestamp till = 2;
+  // end date of the time interval, inclusive.
+  google.type.Date end_date = 2;
 }
 
 message ListDailyTotalsResponse {

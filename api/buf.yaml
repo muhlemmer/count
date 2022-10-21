@@ -1,8 +1,12 @@
 version: v1
 name: buf.build/muhlemmer/count
+deps:
+    - buf.build/googleapis/googleapis
 lint:
   use:
     - DEFAULT
+  allow_comment_ignores: true
+
 breaking:
   use:
     - FILE
