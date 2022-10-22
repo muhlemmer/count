@@ -2,6 +2,8 @@ package migrations
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -39,8 +41,25 @@ func Test_panicOnErr(t *testing.T) {
 	}
 }
 
+// Database configuration
+const (
+	MigrDriverEnvKey  = "MIGRATION_DRIVER"
+	DefaultMigrDriver = "pgx"
+	DSNEnvKey         = "DB_URL"
+	DefaultDSN        = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
+)
+
 func TestDownUp(t *testing.T) {
-	const dsn = "pgx://muhlemmer@db:5432/muhlemmer"
+	migrDriver, ok := os.LookupEnv(MigrDriverEnvKey)
+	if !ok {
+		migrDriver = DefaultMigrDriver
+	}
+	dsn, ok := os.LookupEnv(DSNEnvKey)
+	if !ok {
+		dsn = DefaultDSN
+	}
+
+	dsn = strings.Replace(dsn, "postgresql", migrDriver, 1)
 
 	Down(dsn)
 	Up(dsn)
