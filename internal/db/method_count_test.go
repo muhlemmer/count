@@ -6,7 +6,7 @@ import (
 
 // just test the error, for coverage.
 func Test_scanMethodCountRows(t *testing.T) {
-	rows, err := testDB.pool.Query(testCTX, "select 1;")
+	rows, err := testDB.pool.Query(R.CTX, "select 1;")
 	if err != nil {
 		t.Fatal(err)
 	}

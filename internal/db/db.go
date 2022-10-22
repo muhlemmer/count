@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgconn"
@@ -59,6 +57,10 @@ func statusError(err error, desc string) error {
 // a PGX connection pool.
 type DB struct {
 	pool *pgxpool.Pool
+}
+
+func Wrap(pool *pgxpool.Pool) *DB {
+	return &DB{pool: pool}
 }
 
 // New configures a new PGX connection pool
@@ -131,49 +133,6 @@ func (db *DB) InsertMethodRequest(ctx context.Context, method countv1.Method, pa
 
 }
 
-// InsertMethodRequestTestdata generates pseudo-random entries in the count.requests table.
-// The generated data is deterministic for a given amount, begin and end values.
-// This function is mainly used for unit testing.
-func (db *DB) InsertMethodRequestTestdata(ctx context.Context, amount int, begin, end time.Time) error {
-	source := rand.New(rand.NewSource(22)) // for deterministic output
-
-	var (
-		methods = []countv1.Method{
-			countv1.Method_GET,
-			countv1.Method_POST,
-			countv1.Method_DELETE,
-			countv1.Method_GRPC,
-		}
-		paths = []string{
-			"/users",
-			"/items",
-			"/actions",
-		}
-	)
-
-	beginN := begin.UnixNano()
-	endN := end.UnixNano()
-
-	for i := 0; i < amount; i++ {
-		ts := time.Unix(0, source.Int63n(endN-beginN)+beginN)
-		method := methods[int(source.Int63n(int64(len(methods))))]
-		path := paths[int(source.Int63n(int64(len(paths))))]
-
-		err := func() error {
-			ctx, cancel := context.WithTimeout(ctx, time.Minute)
-			defer cancel()
-
-			return db.InsertMethodRequest(ctx, method, path, ts)
-		}()
-		zerolog.Ctx(ctx).Err(err).Stringer("method", method).Str("path", path).Time("ts", ts).Msg("insert method request")
-
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // CountDailyMethodTotals deletes entries from count.requests for the given day.
 // Deleted entries are counted for each method and path pair and inserted in the
 // count.daily_method_totals table.
@@ -198,45 +157,6 @@ func (db *DB) CountDailyMethodTotals(ctx context.Context, start, end time.Time) 
 
 	results, err := scanMethodCountRows(rows)
 	return results, statusError(err, errDesc)
-}
-
-// InsertDailyTotalTestdata populates count.requests with amount of records,
-// using DB.InsertMethodRequestTestdata.
-// It then calls DB.CountDailyMethodTotals for each day in the interval begin-int.
-// The data is detirminstic pseudo-random.
-// This function is mainly used for unit testing.
-func (db *DB) InsertDailyTotalsTestdata(ctx context.Context, amount int, begin, end time.Time) error {
-	err := db.InsertMethodRequestTestdata(ctx, amount, begin, end)
-	if err != nil {
-		return err
-	}
-
-	ec := make(chan error, int(end.Sub(begin)/(24*time.Hour))+1)
-
-	var wg sync.WaitGroup
-	for current := begin; current.Before(end); current = current.Add(24 * time.Hour) {
-		wg.Add(1)
-
-		go func() {
-			ctx, cancel := context.WithTimeout(ctx, time.Second)
-			defer cancel()
-
-			_, err := db.CountDailyMethodTotals(ctx, begin, end)
-			ec <- err
-			wg.Done()
-		}()
-	}
-
-	wg.Wait()
-	close(ec)
-
-	for err := range ec {
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // dateIntervalQuery is a generalized function for queries that use a start / end date interval.

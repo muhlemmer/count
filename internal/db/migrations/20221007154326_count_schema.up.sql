@@ -1,7 +1,7 @@
 create schema count;
 
 create table count.methods(
-  id serial primary key,
+  id bigserial primary key,
   method varchar not null,
   path varchar not null,
 
@@ -9,6 +9,6 @@ create table count.methods(
 );
 
 create table count.requests(
-  method_id int not null references count.methods(id),
+  method_id bigint not null references count.methods(id),
   request_timestamp timestamptz not null
 );

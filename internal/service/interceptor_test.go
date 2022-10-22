@@ -9,7 +9,7 @@ import (
 )
 
 func Test_serverStreamCtx_Context(t *testing.T) {
-	s := serverStreamCtx{ctx: testCTX}
+	s := serverStreamCtx{ctx: R.CTX}
 	if err := s.Context().Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -20,11 +20,10 @@ func TestStreamLogInterceptor(t *testing.T) {
 
 	interceptor := StreamLogInterceptor(logger)
 	handler := func(srv interface{}, stream grpc.ServerStream) error {
-		s := &CountServer{db: testDB}
-		return s.Add(stream.(*serverStreamCtx).ServerStream.(countv1.CountService_AddServer))
+		return testServer.Add(stream.(*serverStreamCtx).ServerStream.(countv1.CountService_AddServer))
 	}
 	mock := &mockAddServer{
-		ctx:    testCTX,
+		ctx:    R.CTX,
 		stream: testStream,
 	}
 
