@@ -22,13 +22,17 @@ import (
 var (
 	testCTX context.Context
 	errCTX  context.Context
+	testDSN string
 	testDB  *DB
 )
 
-const dsn = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
+const (
+	defaultMigrDriver = "pgx"
+	defaultDSN        = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
+)
 
 func testMain(m *testing.M) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, NoColor: true}).With().Timestamp().Logger()
@@ -36,12 +40,21 @@ func testMain(m *testing.M) int {
 	errCTX, cancel = context.WithCancel(testCTX)
 	cancel()
 
-	migrDSN := strings.Replace(dsn, "postgresql", "pgx", 1)
+	migrDriver, ok := os.LookupEnv("MIGRATION_DRIVER")
+	if !ok {
+		migrDriver = defaultMigrDriver
+	}
+	testDSN, ok = os.LookupEnv("DB_URL")
+	if !ok {
+		testDSN = defaultDSN
+	}
+
+	migrDSN := strings.Replace(testDSN, "postgresql", migrDriver, 1)
 
 	migrations.Down(migrDSN)
 	migrations.Up(migrDSN)
 
-	conf, err := pgxpool.ParseConfig(dsn)
+	conf, err := pgxpool.ParseConfig(testDSN)
 	if err != nil {
 		panic(err)
 	}
@@ -89,7 +102,7 @@ func TestNew(t *testing.T) {
 		},
 		{
 			name: "succes",
-			args: args{testCTX, dsn},
+			args: args{testCTX, testDSN},
 			want: true,
 		},
 	}
@@ -197,10 +210,15 @@ func TestDB_CountDailyMethodTotals(t *testing.T) {
 	begin := time.Unix(1666000000, 0)
 	end := begin.Add(24 * time.Hour)
 
-	err := testDB.InsertMethodRequestTestdata(testCTX, 1000, begin, end)
-	if err != nil {
-		t.Fatal(err)
-	}
+	func() {
+		ctx, cancel := context.WithTimeout(testCTX, 3*time.Minute/2)
+		defer cancel()
+
+		err := testDB.InsertMethodRequestTestdata(ctx, 1000, begin, end)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
 
 	type args struct {
 		ctx context.Context
@@ -221,18 +239,18 @@ func TestDB_CountDailyMethodTotals(t *testing.T) {
 			name: "success",
 			args: args{testCTX, begin},
 			want: []*countv1.MethodCount{
-				{Method: countv1.Method_POST, Path: "/users", Count: 52, Date: datepb.Date(begin)},
-				{Method: countv1.Method_POST, Path: "/items", Count: 47, Date: datepb.Date(begin)},
 				{Method: countv1.Method_DELETE, Path: "/actions", Count: 48, Date: datepb.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/actions", Count: 52, Date: datepb.Date(begin)},
-				{Method: countv1.Method_GET, Path: "/items", Count: 41, Date: datepb.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/users", Count: 44, Date: datepb.Date(begin)},
-				{Method: countv1.Method_GET, Path: "/users", Count: 51, Date: datepb.Date(begin)},
-				{Method: countv1.Method_DELETE, Path: "/users", Count: 57, Date: datepb.Date(begin)},
 				{Method: countv1.Method_GET, Path: "/actions", Count: 35, Date: datepb.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/items", Count: 47, Date: datepb.Date(begin)},
-				{Method: countv1.Method_DELETE, Path: "/items", Count: 52, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/actions", Count: 52, Date: datepb.Date(begin)},
 				{Method: countv1.Method_POST, Path: "/actions", Count: 54, Date: datepb.Date(begin)},
+				{Method: countv1.Method_DELETE, Path: "/items", Count: 52, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GET, Path: "/items", Count: 41, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/items", Count: 47, Date: datepb.Date(begin)},
+				{Method: countv1.Method_POST, Path: "/items", Count: 47, Date: datepb.Date(begin)},
+				{Method: countv1.Method_DELETE, Path: "/users", Count: 57, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GET, Path: "/users", Count: 51, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/users", Count: 44, Date: datepb.Date(begin)},
+				{Method: countv1.Method_POST, Path: "/users", Count: 52, Date: datepb.Date(begin)},
 			},
 		},
 		{
@@ -250,7 +268,8 @@ func TestDB_CountDailyMethodTotals(t *testing.T) {
 				}
 			}
 
-			got, err := testDB.CountDailyMethodTotals(tt.args.ctx, tt.args.day)
+			begin, end := datepb.Interval(datepb.Date(tt.args.day))
+			got, err := testDB.CountDailyMethodTotals(tt.args.ctx, begin, end)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DB.CountDailyMethodTotals() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -273,7 +292,10 @@ func TestDB_ListDailyTotals(t *testing.T) {
 	)
 
 	dailyTotalsTestdata.Do(func() {
-		err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, dailyTotalsBegin, dailyTotalsEnd)
+		ctx, cancel := context.WithTimeout(testCTX, 12*time.Minute)
+		defer cancel()
+
+		err := testDB.InsertDailyTotalsTestdata(ctx, 5000, dailyTotalsBegin, dailyTotalsEnd)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -347,7 +369,10 @@ func TestDB_ListDailyTotals(t *testing.T) {
 
 func TestDB_GetPeriodTotals(t *testing.T) {
 	dailyTotalsTestdata.Do(func() {
-		err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, dailyTotalsBegin, dailyTotalsEnd)
+		ctx, cancel := context.WithTimeout(testCTX, 12*time.Minute)
+		defer cancel()
+
+		err := testDB.InsertDailyTotalsTestdata(ctx, 5000, dailyTotalsBegin, dailyTotalsEnd)
 		if err != nil {
 			t.Fatal(err)
 		}

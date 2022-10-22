@@ -105,7 +105,9 @@ func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDa
 		return nil, status.Errorf(codes.InvalidArgument, "date required")
 	}
 
-	counts, err := s.db.CountDailyMethodTotals(ctx, datepb.Time(date))
+	start, end := datepb.Interval(date)
+
+	counts, err := s.db.CountDailyMethodTotals(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}

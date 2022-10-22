@@ -24,16 +24,18 @@ import (
 var (
 	testCTX context.Context
 	errCTX  context.Context
+	testDSN string
 	testDB  *db.DB
 	errDB   *db.DB
 )
 
 const (
-	dsn = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
+	defaultMigrDriver = "pgx"
+	defaultDSN        = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
 )
 
 func testMain(m *testing.M) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, NoColor: true}).With().Timestamp().Logger()
@@ -41,19 +43,28 @@ func testMain(m *testing.M) int {
 	errCTX, cancel = context.WithCancel(testCTX)
 	cancel()
 
-	migrDSN := strings.Replace(dsn, "postgresql", "cockroachdb", 1)
+	migrDriver, ok := os.LookupEnv("MIGRATION_DRIVER")
+	if !ok {
+		migrDriver = defaultMigrDriver
+	}
+	testDSN, ok = os.LookupEnv("DB_URL")
+	if !ok {
+		testDSN = defaultDSN
+	}
+
+	migrDSN := strings.Replace(testDSN, "postgresql", migrDriver, 1)
 
 	migrations.Down(migrDSN)
 	migrations.Up(migrDSN)
 
 	var err error
-	testDB, err = db.New(testCTX, dsn)
+	testDB, err = db.New(testCTX, testDSN)
 	if err != nil {
 		panic(err)
 	}
 	defer testDB.Close()
 
-	errDB, err = db.New(testCTX, dsn)
+	errDB, err = db.New(testCTX, testDSN)
 	if err != nil {
 		panic(err)
 	}

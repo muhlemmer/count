@@ -178,13 +178,19 @@ func (db *DB) InsertMethodRequestTestdata(ctx context.Context, amount int, begin
 // Deleted entries are counted for each method and path pair and inserted in the
 // count.daily_method_totals table.
 // The resulting count enties are returned.
-func (db *DB) CountDailyMethodTotals(ctx context.Context, day time.Time) ([]*countv1.MethodCount, error) {
+func (db *DB) CountDailyMethodTotals(ctx context.Context, start, end time.Time) ([]*countv1.MethodCount, error) {
 	const errDesc = "count daily method totals"
 
-	rows, err := db.pool.Query(ctx, countDailyMethodTotalsSQL, pgtype.Date{
-		Time:   day,
-		Status: pgtype.Present,
-	})
+	rows, err := db.pool.Query(ctx, countDailyMethodTotalsSQL,
+		pgtype.Timestamptz{
+			Time:   start,
+			Status: pgtype.Present,
+		},
+		pgtype.Timestamptz{
+			Time:   end,
+			Status: pgtype.Present,
+		},
+	)
 	if err = statusError(err, errDesc); err != nil {
 		return nil, err
 	}
@@ -211,19 +217,26 @@ func (db *DB) InsertDailyTotalsTestdata(ctx context.Context, amount int, begin, 
 	for current := begin; current.Before(end); current = current.Add(24 * time.Hour) {
 		wg.Add(1)
 
-		go func(day time.Time) {
+		go func() {
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
 
-			_, err := db.CountDailyMethodTotals(ctx, day)
+			_, err := db.CountDailyMethodTotals(ctx, begin, end)
 			ec <- err
 			wg.Done()
-		}(current)
+		}()
 	}
 
 	wg.Wait()
+	close(ec)
 
-	return <-ec
+	for err := range ec {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // dateIntervalQuery is a generalized function for queries that use a start / end date interval.
