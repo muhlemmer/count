@@ -9,7 +9,7 @@ import (
 
 	"github.com/muhlemmer/count/internal/db"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
-	"github.com/muhlemmer/count/pkg/date"
+	"github.com/muhlemmer/count/pkg/datepb"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -100,12 +100,12 @@ func (s *CountServer) Add(as countv1.CountService_AddServer) error {
 }
 
 func (s *CountServer) CountDailyTotals(ctx context.Context, req *countv1.CountDailyTotalsRequest) (*countv1.CountDailyTotalsResponse, error) {
-	countDate := req.GetDate()
-	if countDate == nil {
+	date := req.GetDate()
+	if date == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "date required")
 	}
 
-	counts, err := s.db.CountDailyMethodTotals(ctx, date.Time(countDate))
+	counts, err := s.db.CountDailyMethodTotals(ctx, datepb.Time(date))
 	if err != nil {
 		return nil, err
 	}
@@ -126,15 +126,38 @@ func (s *CountServer) ListDailyTotals(ctx context.Context, req *countv1.ListDail
 		return nil, status.Errorf(codes.InvalidArgument, "end_date required")
 	}
 
-	counts, err := s.db.ListDailyTotals(ctx, date.Time(startDate), date.Time(endDate))
+	start, end := datepb.Time(startDate), datepb.Time(endDate)
+
+	counts, err := s.db.ListDailyTotals(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}
 	if len(counts) == 0 {
-		return nil, status.Error(codes.NotFound, "no results found")
+		return nil, status.Errorf(codes.NotFound, "no results found between %q and %q", start, end)
 	}
 
 	return &countv1.ListDailyTotalsResponse{
+		MethodCounts: counts,
+	}, nil
+}
+
+func (s *CountServer) GetPeriodTotals(ctx context.Context, req *countv1.GetPeriodTotalsRequest) (*countv1.GetPeriodTotalsResponse, error) {
+	period := req.GetPeriod()
+	if period == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "period required")
+	}
+
+	start, end := datepb.Interval(period)
+
+	counts, err := s.db.GetPeriodTotals(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	if len(counts) == 0 {
+		return nil, status.Errorf(codes.NotFound, "no results found between %q and %q", start, end)
+	}
+
+	return &countv1.GetPeriodTotalsResponse{
 		MethodCounts: counts,
 	}, nil
 }

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/log/zerologadapter"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/muhlemmer/count/internal/timer"
@@ -203,49 +205,64 @@ func (db *DB) InsertDailyTotalsTestdata(ctx context.Context, amount int, begin, 
 		return err
 	}
 
-	ec := make(chan error)
+	ec := make(chan error, int(end.Sub(begin)/(24*time.Hour))+1)
 
-	var n int
+	var wg sync.WaitGroup
 	for current := begin; current.Before(end); current = current.Add(24 * time.Hour) {
-		n++
+		wg.Add(1)
+
 		go func(day time.Time) {
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
 
 			_, err := db.CountDailyMethodTotals(ctx, day)
-			select {
-			case ec <- err:
-			default:
-			}
 			ec <- err
+			wg.Done()
 		}(current)
 	}
 
-	for i := 0; i < n; i++ {
-		if err = <-ec; err != nil {
-			return err
-		}
-	}
+	wg.Wait()
 
-	return nil
+	return <-ec
 }
 
-// ListDailyTotals selects entries from count.daily_method_totals in the
-// date interval of from-till.
-// Both dates are inclusive.
-func (db *DB) ListDailyTotals(ctx context.Context, from, till time.Time) ([]*countv1.MethodCount, error) {
-	const errDesc = "list daily totals"
-
-	rows, err := db.pool.Query(ctx, listDailyTotalsSQL,
+// dateIntervalQuery is a generalized function for queries that use a start / end date interval.
+// the passed query is executed with start and end as arguments.
+func (db *DB) dateIntervalQuery(ctx context.Context, query string, start, end time.Time) (pgx.Rows, error) {
+	return db.pool.Query(ctx, query,
 		pgtype.Date{
-			Time:   from,
+			Time:   start,
 			Status: pgtype.Present,
 		},
 		pgtype.Date{
-			Time:   till,
+			Time:   end,
 			Status: pgtype.Present,
 		},
 	)
+}
+
+// ListDailyTotals selects entries from count.daily_method_totals in the
+// date interval of start-end inclusive.
+func (db *DB) ListDailyTotals(ctx context.Context, start, end time.Time) ([]*countv1.MethodCount, error) {
+	const errDesc = "list daily totals"
+
+	rows, err := db.dateIntervalQuery(ctx, listDailyTotalsSQL, start, end)
+	if err = statusError(err, errDesc); err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results, err := scanMethodCountRows(rows)
+	return results, statusError(err, errDesc)
+}
+
+// GetPeriodTotals selects entries from count.daily_method_totals and
+// sums the totals columns, grouped by method and path.
+// Start and end times are inclusive.
+func (db *DB) GetPeriodTotals(ctx context.Context, start, end time.Time) ([]*countv1.MethodCount, error) {
+	const errDesc = "get period totals"
+
+	rows, err := db.dateIntervalQuery(ctx, getPeriodTotalsSQL, start, end)
 	if err = statusError(err, errDesc); err != nil {
 		return nil, err
 	}

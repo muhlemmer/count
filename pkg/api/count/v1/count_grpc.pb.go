@@ -39,6 +39,16 @@ type CountServiceClient interface {
 	// When the requested interval does not result in any entries,
 	// a NotFound error will be returned.
 	ListDailyTotals(ctx context.Context, in *ListDailyTotalsRequest, opts ...grpc.CallOption) (*ListDailyTotalsResponse, error)
+	// GetPeriodTotals returns a list of count for each method and path pair.
+	// Only entries which are previously created by CountDailyTotals can be returned.
+	// The inverval is determined by the fields in period. When:
+	//   - day and month are zero, a list of totals for the requested year is returned.
+	//   - only day is zero, a list of totals for the requested month and year is returned.
+	//   - day and month are non zero, a list of totals for the request date is returned.
+	//
+	// When the requested period does not result in any entries,
+	// a NotFound error will be returned.
+	GetPeriodTotals(ctx context.Context, in *GetPeriodTotalsRequest, opts ...grpc.CallOption) (*GetPeriodTotalsResponse, error)
 }
 
 type countServiceClient struct {
@@ -101,6 +111,15 @@ func (c *countServiceClient) ListDailyTotals(ctx context.Context, in *ListDailyT
 	return out, nil
 }
 
+func (c *countServiceClient) GetPeriodTotals(ctx context.Context, in *GetPeriodTotalsRequest, opts ...grpc.CallOption) (*GetPeriodTotalsResponse, error) {
+	out := new(GetPeriodTotalsResponse)
+	err := c.cc.Invoke(ctx, "/count.v1.CountService/GetPeriodTotals", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CountServiceServer is the server API for CountService service.
 // All implementations must embed UnimplementedCountServiceServer
 // for forward compatibility
@@ -122,6 +141,16 @@ type CountServiceServer interface {
 	// When the requested interval does not result in any entries,
 	// a NotFound error will be returned.
 	ListDailyTotals(context.Context, *ListDailyTotalsRequest) (*ListDailyTotalsResponse, error)
+	// GetPeriodTotals returns a list of count for each method and path pair.
+	// Only entries which are previously created by CountDailyTotals can be returned.
+	// The inverval is determined by the fields in period. When:
+	//   - day and month are zero, a list of totals for the requested year is returned.
+	//   - only day is zero, a list of totals for the requested month and year is returned.
+	//   - day and month are non zero, a list of totals for the request date is returned.
+	//
+	// When the requested period does not result in any entries,
+	// a NotFound error will be returned.
+	GetPeriodTotals(context.Context, *GetPeriodTotalsRequest) (*GetPeriodTotalsResponse, error)
 	mustEmbedUnimplementedCountServiceServer()
 }
 
@@ -137,6 +166,9 @@ func (UnimplementedCountServiceServer) CountDailyTotals(context.Context, *CountD
 }
 func (UnimplementedCountServiceServer) ListDailyTotals(context.Context, *ListDailyTotalsRequest) (*ListDailyTotalsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDailyTotals not implemented")
+}
+func (UnimplementedCountServiceServer) GetPeriodTotals(context.Context, *GetPeriodTotalsRequest) (*GetPeriodTotalsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeriodTotals not implemented")
 }
 func (UnimplementedCountServiceServer) mustEmbedUnimplementedCountServiceServer() {}
 
@@ -213,6 +245,24 @@ func _CountService_ListDailyTotals_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CountService_GetPeriodTotals_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPeriodTotalsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CountServiceServer).GetPeriodTotals(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/count.v1.CountService/GetPeriodTotals",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CountServiceServer).GetPeriodTotals(ctx, req.(*GetPeriodTotalsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CountService_ServiceDesc is the grpc.ServiceDesc for CountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -227,6 +277,10 @@ var CountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListDailyTotals",
 			Handler:    _CountService_ListDailyTotals_Handler,
+		},
+		{
+			MethodName: "GetPeriodTotals",
+			Handler:    _CountService_GetPeriodTotals_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

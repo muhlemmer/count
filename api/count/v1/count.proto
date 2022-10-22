@@ -58,7 +58,7 @@ message MethodCount {
   string path = 2;
 
   // Amount of times each method and path pair was requested.
-  int32 count = 3;
+  int64 count = 3;
 
   // Date of the counted requests.
   google.type.Date date = 4;
@@ -86,6 +86,16 @@ message ListDailyTotalsResponse {
   repeated MethodCount method_counts = 1;
 }
 
+message GetPeriodTotalsRequest {
+  // period for which the totals are requested.
+  // The length of the period is determined
+  // by the populated fields year, month or day.
+  google.type.Date period = 1;
+}
+message GetPeriodTotalsResponse {
+  repeated MethodCount method_counts = 1;
+}
+
 service CountService {
   // Add datapoints for request counting, over a streaming RPC.
   // Datapoints are stored asynchronous, to prevent blocking at the client side.
@@ -106,4 +116,15 @@ service CountService {
   // When the requested interval does not result in any entries,
   // a NotFound error will be returned.
   rpc ListDailyTotals(ListDailyTotalsRequest) returns (ListDailyTotalsResponse) {}
+
+  // GetPeriodTotals returns a list of count for each method and path pair.
+  // Only entries which are previously created by CountDailyTotals can be returned.
+  // The inverval is determined by the fields in period. When:
+  //  - day and month are zero, a list of totals for the requested year is returned.
+  //  - only day is zero, a list of totals for the requested month and year is returned.
+  //  - day and month are non zero, a list of totals for the request date is returned.
+  //
+  // When the requested period does not result in any entries,
+  // a NotFound error will be returned.
+  rpc GetPeriodTotals(GetPeriodTotalsRequest) returns (GetPeriodTotalsResponse) {}
 }

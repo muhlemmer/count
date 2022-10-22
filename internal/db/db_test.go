@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/muhlemmer/count/internal/db/migrations"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
-	"github.com/muhlemmer/count/pkg/date"
+	"github.com/muhlemmer/count/pkg/datepb"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
 )
@@ -178,6 +179,20 @@ func TestDB_InsertMethodRequest(t *testing.T) {
 	}
 }
 
+func compareMethodCounts(t *testing.T, fname string, got, wants []*countv1.MethodCount) {
+	for _, msg := range got {
+		t.Log(msg)
+	}
+	if len(got) != len(wants) {
+		t.Fatalf("%s =\n%v\nwant\n%v", fname, got, wants)
+	}
+	for i, want := range wants {
+		if !proto.Equal(got[i], want) {
+			t.Errorf("%s #%d =\n%v\nwant\n%v", fname, i, got[i], want)
+		}
+	}
+}
+
 func TestDB_CountDailyMethodTotals(t *testing.T) {
 	begin := time.Unix(1666000000, 0)
 	end := begin.Add(24 * time.Hour)
@@ -206,18 +221,18 @@ func TestDB_CountDailyMethodTotals(t *testing.T) {
 			name: "success",
 			args: args{testCTX, begin},
 			want: []*countv1.MethodCount{
-				{Method: countv1.Method_POST, Path: "/users", Count: 52, Date: date.Date(begin)},
-				{Method: countv1.Method_POST, Path: "/items", Count: 47, Date: date.Date(begin)},
-				{Method: countv1.Method_DELETE, Path: "/actions", Count: 48, Date: date.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/actions", Count: 52, Date: date.Date(begin)},
-				{Method: countv1.Method_GET, Path: "/items", Count: 41, Date: date.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/users", Count: 44, Date: date.Date(begin)},
-				{Method: countv1.Method_GET, Path: "/users", Count: 51, Date: date.Date(begin)},
-				{Method: countv1.Method_DELETE, Path: "/users", Count: 57, Date: date.Date(begin)},
-				{Method: countv1.Method_GET, Path: "/actions", Count: 35, Date: date.Date(begin)},
-				{Method: countv1.Method_GRPC, Path: "/items", Count: 47, Date: date.Date(begin)},
-				{Method: countv1.Method_DELETE, Path: "/items", Count: 52, Date: date.Date(begin)},
-				{Method: countv1.Method_POST, Path: "/actions", Count: 54, Date: date.Date(begin)},
+				{Method: countv1.Method_POST, Path: "/users", Count: 52, Date: datepb.Date(begin)},
+				{Method: countv1.Method_POST, Path: "/items", Count: 47, Date: datepb.Date(begin)},
+				{Method: countv1.Method_DELETE, Path: "/actions", Count: 48, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/actions", Count: 52, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GET, Path: "/items", Count: 41, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/users", Count: 44, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GET, Path: "/users", Count: 51, Date: datepb.Date(begin)},
+				{Method: countv1.Method_DELETE, Path: "/users", Count: 57, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GET, Path: "/actions", Count: 35, Date: datepb.Date(begin)},
+				{Method: countv1.Method_GRPC, Path: "/items", Count: 47, Date: datepb.Date(begin)},
+				{Method: countv1.Method_DELETE, Path: "/items", Count: 52, Date: datepb.Date(begin)},
+				{Method: countv1.Method_POST, Path: "/actions", Count: 54, Date: datepb.Date(begin)},
 			},
 		},
 		{
@@ -240,59 +255,55 @@ func TestDB_CountDailyMethodTotals(t *testing.T) {
 				t.Errorf("DB.CountDailyMethodTotals() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			for _, msg := range got {
-				t.Log(msg)
-			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("DB.CountDailyMethodTotals() =\n%v\nwant\n%v", got, tt.want)
-			}
-			for i, want := range tt.want {
-				if !proto.Equal(got[i], want) {
-					t.Errorf("DB.CountDailyMethodTotals() #%d =\n%v\nwant\n%v", i, got[i], want)
-				}
-			}
+			compareMethodCounts(t, "DB.CountDailyMethodTotals()", got, tt.want)
 		})
 	}
 }
 
+var (
+	dailyTotalsBegin    = time.Date(1986, 3, 25, 0, 0, 0, 0, time.UTC)
+	dailyTotalsEnd      = dailyTotalsBegin.Add(10 * 24 * time.Hour)
+	dailyTotalsTestdata sync.Once
+)
+
 func TestDB_ListDailyTotals(t *testing.T) {
 	var (
-		begin = time.Date(1986, 3, 25, 0, 0, 0, 0, time.UTC)
-		end   = begin.Add(10 * 24 * time.Hour)
-		day1  = begin.Add(24 * time.Hour)
-		day2  = begin.Add(48 * time.Hour)
+		day1 = dailyTotalsBegin.Add(24 * time.Hour)
+		day2 = dailyTotalsBegin.Add(48 * time.Hour)
 	)
 
-	err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, begin, end)
-	if err != nil {
-		t.Fatal(err)
-	}
+	dailyTotalsTestdata.Do(func() {
+		err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, dailyTotalsBegin, dailyTotalsEnd)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 
 	results := []*countv1.MethodCount{
-		{Date: date.Date(day1), Path: "/actions", Method: countv1.Method_DELETE, Count: 52},
-		{Date: date.Date(day1), Path: "/actions", Method: countv1.Method_GET, Count: 27},
-		{Date: date.Date(day1), Path: "/actions", Method: countv1.Method_GRPC, Count: 41},
-		{Date: date.Date(day1), Path: "/actions", Method: countv1.Method_POST, Count: 33},
-		{Date: date.Date(day1), Path: "/items", Method: countv1.Method_DELETE, Count: 51},
-		{Date: date.Date(day1), Path: "/items", Method: countv1.Method_GET, Count: 48},
-		{Date: date.Date(day1), Path: "/items", Method: countv1.Method_GRPC, Count: 35},
-		{Date: date.Date(day1), Path: "/items", Method: countv1.Method_POST, Count: 35},
-		{Date: date.Date(day1), Path: "/users", Method: countv1.Method_DELETE, Count: 48},
-		{Date: date.Date(day1), Path: "/users", Method: countv1.Method_GET, Count: 45},
-		{Date: date.Date(day1), Path: "/users", Method: countv1.Method_GRPC, Count: 27},
-		{Date: date.Date(day1), Path: "/users", Method: countv1.Method_POST, Count: 37},
-		{Date: date.Date(day2), Path: "/actions", Method: countv1.Method_DELETE, Count: 42},
-		{Date: date.Date(day2), Path: "/actions", Method: countv1.Method_GET, Count: 30},
-		{Date: date.Date(day2), Path: "/actions", Method: countv1.Method_GRPC, Count: 42},
-		{Date: date.Date(day2), Path: "/actions", Method: countv1.Method_POST, Count: 44},
-		{Date: date.Date(day2), Path: "/items", Method: countv1.Method_DELETE, Count: 40},
-		{Date: date.Date(day2), Path: "/items", Method: countv1.Method_GET, Count: 41},
-		{Date: date.Date(day2), Path: "/items", Method: countv1.Method_GRPC, Count: 39},
-		{Date: date.Date(day2), Path: "/items", Method: countv1.Method_POST, Count: 35},
-		{Date: date.Date(day2), Path: "/users", Method: countv1.Method_DELETE, Count: 32},
-		{Date: date.Date(day2), Path: "/users", Method: countv1.Method_GET, Count: 50},
-		{Date: date.Date(day2), Path: "/users", Method: countv1.Method_GRPC, Count: 39},
-		{Date: date.Date(day2), Path: "/users", Method: countv1.Method_POST, Count: 35},
+		{Date: datepb.Date(day1), Path: "/actions", Method: countv1.Method_DELETE, Count: 52},
+		{Date: datepb.Date(day1), Path: "/actions", Method: countv1.Method_GET, Count: 27},
+		{Date: datepb.Date(day1), Path: "/actions", Method: countv1.Method_GRPC, Count: 41},
+		{Date: datepb.Date(day1), Path: "/actions", Method: countv1.Method_POST, Count: 33},
+		{Date: datepb.Date(day1), Path: "/items", Method: countv1.Method_DELETE, Count: 51},
+		{Date: datepb.Date(day1), Path: "/items", Method: countv1.Method_GET, Count: 48},
+		{Date: datepb.Date(day1), Path: "/items", Method: countv1.Method_GRPC, Count: 35},
+		{Date: datepb.Date(day1), Path: "/items", Method: countv1.Method_POST, Count: 35},
+		{Date: datepb.Date(day1), Path: "/users", Method: countv1.Method_DELETE, Count: 48},
+		{Date: datepb.Date(day1), Path: "/users", Method: countv1.Method_GET, Count: 45},
+		{Date: datepb.Date(day1), Path: "/users", Method: countv1.Method_GRPC, Count: 27},
+		{Date: datepb.Date(day1), Path: "/users", Method: countv1.Method_POST, Count: 37},
+		{Date: datepb.Date(day2), Path: "/actions", Method: countv1.Method_DELETE, Count: 42},
+		{Date: datepb.Date(day2), Path: "/actions", Method: countv1.Method_GET, Count: 30},
+		{Date: datepb.Date(day2), Path: "/actions", Method: countv1.Method_GRPC, Count: 42},
+		{Date: datepb.Date(day2), Path: "/actions", Method: countv1.Method_POST, Count: 44},
+		{Date: datepb.Date(day2), Path: "/items", Method: countv1.Method_DELETE, Count: 40},
+		{Date: datepb.Date(day2), Path: "/items", Method: countv1.Method_GET, Count: 41},
+		{Date: datepb.Date(day2), Path: "/items", Method: countv1.Method_GRPC, Count: 39},
+		{Date: datepb.Date(day2), Path: "/items", Method: countv1.Method_POST, Count: 35},
+		{Date: datepb.Date(day2), Path: "/users", Method: countv1.Method_DELETE, Count: 32},
+		{Date: datepb.Date(day2), Path: "/users", Method: countv1.Method_GET, Count: 50},
+		{Date: datepb.Date(day2), Path: "/users", Method: countv1.Method_GRPC, Count: 39},
+		{Date: datepb.Date(day2), Path: "/users", Method: countv1.Method_POST, Count: 35},
 	}
 
 	type args struct {
@@ -329,17 +340,110 @@ func TestDB_ListDailyTotals(t *testing.T) {
 				t.Errorf("DB.ListDailyTotals() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			for _, msg := range got {
-				t.Log(msg)
+			compareMethodCounts(t, "DB.ListDailyTotals()", got, tt.want)
+		})
+	}
+}
+
+func TestDB_GetPeriodTotals(t *testing.T) {
+	dailyTotalsTestdata.Do(func() {
+		err := testDB.InsertDailyTotalsTestdata(testCTX, 5000, dailyTotalsBegin, dailyTotalsEnd)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	type args struct {
+		ctx   context.Context
+		start time.Time
+		end   time.Time
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []*countv1.MethodCount
+		wantErr bool
+	}{
+		{
+			name: "context error",
+			args: args{errCTX,
+				time.Date(1986, time.March, 1, 0, 0, 0, 0, time.UTC),
+				time.Date(1986, time.March, 31, 23, 59, 59, 999999999, time.UTC),
+			},
+			wantErr: true,
+		},
+		{
+			name: "year",
+			args: args{testCTX,
+				time.Date(1986, time.January, 1, 0, 0, 0, 0, time.UTC),
+				time.Date(1986, time.December, 31, 23, 59, 59, 999999999, time.UTC),
+			},
+			want: []*countv1.MethodCount{
+				{Path: "/actions", Method: countv1.Method_DELETE, Count: 441},
+				{Path: "/actions", Method: countv1.Method_GET, Count: 397},
+				{Path: "/actions", Method: countv1.Method_GRPC, Count: 401},
+				{Path: "/actions", Method: countv1.Method_POST, Count: 403},
+				{Path: "/items", Method: countv1.Method_DELETE, Count: 422},
+				{Path: "/items", Method: countv1.Method_GET, Count: 424},
+				{Path: "/items", Method: countv1.Method_GRPC, Count: 428},
+				{Path: "/items", Method: countv1.Method_POST, Count: 425},
+				{Path: "/users", Method: countv1.Method_DELETE, Count: 428},
+				{Path: "/users", Method: countv1.Method_GET, Count: 448},
+				{Path: "/users", Method: countv1.Method_GRPC, Count: 395},
+				{Path: "/users", Method: countv1.Method_POST, Count: 388},
+			},
+		},
+		{
+			name: "month",
+			args: args{testCTX,
+				time.Date(1986, time.March, 1, 0, 0, 0, 0, time.UTC),
+				time.Date(1986, time.March, 31, 23, 59, 59, 999999999, time.UTC),
+			},
+			want: []*countv1.MethodCount{
+				{Path: "/actions", Method: countv1.Method_DELETE, Count: 309},
+				{Path: "/actions", Method: countv1.Method_GET, Count: 267},
+				{Path: "/actions", Method: countv1.Method_GRPC, Count: 278},
+				{Path: "/actions", Method: countv1.Method_POST, Count: 259},
+				{Path: "/items", Method: countv1.Method_DELETE, Count: 311},
+				{Path: "/items", Method: countv1.Method_GET, Count: 295},
+				{Path: "/items", Method: countv1.Method_GRPC, Count: 304},
+				{Path: "/items", Method: countv1.Method_POST, Count: 286},
+				{Path: "/users", Method: countv1.Method_DELETE, Count: 290},
+				{Path: "/users", Method: countv1.Method_GET, Count: 316},
+				{Path: "/users", Method: countv1.Method_GRPC, Count: 264},
+				{Path: "/users", Method: countv1.Method_POST, Count: 268},
+			},
+		},
+		{
+			name: "day",
+			args: args{testCTX,
+				time.Date(1986, time.March, 25, 0, 0, 0, 0, time.UTC),
+				time.Date(1986, time.March, 25, 23, 59, 59, 999999999, time.UTC),
+			},
+			want: []*countv1.MethodCount{
+				{Path: "/actions", Method: countv1.Method_DELETE, Count: 46},
+				{Path: "/actions", Method: countv1.Method_GET, Count: 44},
+				{Path: "/actions", Method: countv1.Method_GRPC, Count: 38},
+				{Path: "/actions", Method: countv1.Method_POST, Count: 42},
+				{Path: "/items", Method: countv1.Method_DELETE, Count: 50},
+				{Path: "/items", Method: countv1.Method_GET, Count: 45},
+				{Path: "/items", Method: countv1.Method_GRPC, Count: 35},
+				{Path: "/items", Method: countv1.Method_POST, Count: 32},
+				{Path: "/users", Method: countv1.Method_DELETE, Count: 46},
+				{Path: "/users", Method: countv1.Method_GET, Count: 56},
+				{Path: "/users", Method: countv1.Method_GRPC, Count: 45},
+				{Path: "/users", Method: countv1.Method_POST, Count: 35},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := testDB.GetPeriodTotals(tt.args.ctx, tt.args.start, tt.args.end)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DB.GetPeriodTotals() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("DB.ListDailyTotals() =\n%v\nwant\n%v", got, tt.want)
-			}
-			for i, want := range tt.want {
-				if !proto.Equal(got[i], want) {
-					t.Errorf("DB.ListDailyTotals() #%d =\n%v\nwant\n%v", i, got[i], want)
-				}
-			}
+			compareMethodCounts(t, "DB.GetPeriodTotals()", got, tt.want)
 		})
 	}
 }
