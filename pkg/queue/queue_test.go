@@ -8,13 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/muhlemmer/count/internal/db"
-	"github.com/muhlemmer/count/internal/db/migrations"
 	"github.com/muhlemmer/count/internal/service"
+	"github.com/muhlemmer/count/internal/tester"
 	countv1 "github.com/muhlemmer/count/pkg/api/count/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -23,62 +22,38 @@ import (
 )
 
 var (
-	testCTX    context.Context
-	errCTX     context.Context
+	R          *tester.Resources
 	testClient countv1.CountServiceClient
 	testServer *grpc.Server
 )
 
-const dsn = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
-
-func testMain(m *testing.M) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, NoColor: true}).With().Timestamp().Logger()
-	testCTX = logger.WithContext(ctx)
-	errCTX, cancel = context.WithCancel(testCTX)
-	cancel()
-
-	migrDSN := strings.Replace(dsn, "postgresql", "cockroachdb", 1)
-
-	migrations.Down(migrDSN)
-	migrations.Up(migrDSN)
-
-	db, err := db.New(testCTX, dsn)
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-
-	testServer = grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
-	service.NewCountService(testServer, db)
-
-	lis, err := net.Listen("tcp", "127.0.0.1:9999")
-	if err != nil {
-		panic(err)
-	}
-
-	go func() {
-		logger.Err(testServer.Serve(lis)).Msg("grpc server terminated")
-	}()
-	defer testServer.GracefulStop()
-
-	cc, err := grpc.DialContext(testCTX, "127.0.0.1:9999",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	testClient = countv1.NewCountServiceClient(cc)
-
-	return m.Run()
-}
-
 func TestMain(m *testing.M) {
-	os.Exit(testMain(m))
+	os.Exit(tester.Run(2*time.Minute, func(r *tester.Resources) int {
+		R = r
+		testServer = grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+		service.NewCountService(testServer, db.Wrap(R.Pool))
+
+		lis, err := net.Listen("tcp", "127.0.0.1:9999")
+		if err != nil {
+			panic(err)
+		}
+
+		go func() {
+			zerolog.Ctx(R.CTX).Err(testServer.Serve(lis)).Msg("grpc server terminated")
+		}()
+		defer testServer.GracefulStop()
+
+		cc, err := grpc.DialContext(R.CTX, "127.0.0.1:9999",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+		)
+		if err != nil {
+			panic(err)
+		}
+
+		testClient = countv1.NewCountServiceClient(cc)
+		return m.Run()
+	}))
 }
 
 func TestCountAddQueue_reconnectCountAddClientStream(t *testing.T) {
@@ -92,12 +67,12 @@ func TestCountAddQueue_reconnectCountAddClientStream(t *testing.T) {
 	}{
 		{
 			name:    "context error",
-			fields:  fields{errCTX},
+			fields:  fields{R.ErrCTX},
 			wantErr: true,
 		},
 		{
 			name:   "success",
-			fields: fields{testCTX},
+			fields: fields{R.CTX},
 		},
 	}
 	for _, tt := range tests {
@@ -114,13 +89,13 @@ func TestCountAddQueue_reconnectCountAddClientStream(t *testing.T) {
 }
 
 func BenchmarkCountAddQueue_processQueue(b *testing.B) {
-	stream, err := testClient.Add(testCTX)
+	stream, err := testClient.Add(R.CTX)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	c := &CountAddQueue{
-		ctx:    testCTX,
+		ctx:    R.CTX,
 		client: testClient,
 		queue:  make(chan *request),
 		stream: stream,
@@ -134,7 +109,7 @@ func BenchmarkCountAddQueue_processQueue(b *testing.B) {
 
 	b.Run("bench", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			c.queue <- &request{testCTX, &countv1.AddRequest{
+			c.queue <- &request{R.CTX, &countv1.AddRequest{
 				Method:           countv1.Method_DELETE,
 				Path:             "/foo/bar",
 				RequestTimestamp: timestamppb.Now(),
@@ -176,12 +151,12 @@ func TestNewCountAddClient(t *testing.T) {
 	}{
 		{
 			name:    "context error",
-			args:    args{errCTX, testClient},
+			args:    args{R.ErrCTX, testClient},
 			wantErr: true,
 		},
 		{
 			name: "success",
-			args: args{testCTX, testClient},
+			args: args{R.CTX, testClient},
 		},
 	}
 	for _, tt := range tests {
@@ -193,7 +168,7 @@ func TestNewCountAddClient(t *testing.T) {
 			}
 			if !tt.wantErr {
 				for _, req := range testStream {
-					q.Queue(testCTX, req)
+					q.Queue(R.CTX, req)
 				}
 				q.Close()
 			}
@@ -207,7 +182,7 @@ func TestCountAddQueue_QueueOrDrop(t *testing.T) {
 	}
 
 	for _, req := range testStream {
-		c.QueueOrDrop(testCTX, req)
+		c.QueueOrDrop(R.CTX, req)
 	}
 }
 
@@ -245,7 +220,7 @@ func TestCountAddQueue_UnaryInterceptor(t *testing.T) {
 	}
 
 	var handlerCalled bool
-	c.UnaryInterceptor()(testCTX, nil, &grpc.UnaryServerInfo{FullMethod: "foo.bar"}, func(ctx context.Context, req interface{}) (interface{}, error) {
+	c.UnaryInterceptor()(R.CTX, nil, &grpc.UnaryServerInfo{FullMethod: "foo.bar"}, func(ctx context.Context, req interface{}) (interface{}, error) {
 		handlerCalled = true
 		return nil, nil
 	})

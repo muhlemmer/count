@@ -177,10 +177,8 @@ func (r *Resources) dailyMethodTotalsData(ctx context.Context) {
 	}
 }
 
-// Run resets the database by migrating Down and Up and generating
-// testdata in all tables.
-// The limits of the generated data can be found in Resources,
-// passed to the run function.
+// Run resets the database by migrating Down and Up.
+//
 // The run function is meant to iniate tests and supply
 // them with Resources as required, returning the value
 // from testing.M.Run().
@@ -224,19 +222,36 @@ func Run(timeout time.Duration, run func(r *Resources) int) int {
 	defer db.Close()
 
 	r := &Resources{
-		CTX:              ctx,
-		ErrCTX:           errCTX,
-		DSN:              dsn,
-		Pool:             db,
-		RequestBegin:     time.Date(2022, time.October, 16, 0, 0, 0, 0, time.UTC),
-		RequestsEnd:      time.Date(2022, time.October, 18, 0, 0, 0, -1, time.UTC),
-		DailyTotalsBegin: time.Date(1986, time.March, 15, 0, 0, 0, 0, time.UTC),
-		DailyTotalsEnd:   time.Date(1986, time.April, 16, 0, 0, 0, -1, time.UTC),
+		CTX:    ctx,
+		ErrCTX: errCTX,
+		DSN:    dsn,
+		Pool:   db,
 	}
 
-	r.methodsData(ctx)
-	r.requestsData(ctx, 100)
-	r.dailyMethodTotalsData(ctx)
-
 	return run(r)
+}
+
+// RunWithData resets the database by migrating Down and Up and generating
+// testdata in all tables.
+// The limits of the generated data can be found in Resources,
+// passed to the run function.
+// The run function is meant to iniate tests and supply
+// them with Resources as required, returning the value
+// from testing.M.Run().
+//
+// Database configuration is taken from the environment.
+// See package constants for more details.
+func RunWithData(timeout time.Duration, run func(r *Resources) int) int {
+	return Run(timeout, func(r *Resources) int {
+		r.RequestBegin = time.Date(2022, time.October, 16, 0, 0, 0, 0, time.UTC)
+		r.RequestsEnd = time.Date(2022, time.October, 18, 0, 0, 0, -1, time.UTC)
+		r.DailyTotalsBegin = time.Date(1986, time.March, 15, 0, 0, 0, 0, time.UTC)
+		r.DailyTotalsEnd = time.Date(1986, time.April, 16, 0, 0, 0, -1, time.UTC)
+
+		r.methodsData(r.CTX)
+		r.requestsData(r.CTX, 100)
+		r.dailyMethodTotalsData(r.CTX)
+
+		return run(r)
+	})
 }

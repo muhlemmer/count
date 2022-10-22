@@ -1,12 +1,16 @@
 package tester
 
 import (
+	"os"
 	"testing"
 	"time"
 )
 
-func TestNew(t *testing.T) {
-	Run(10*time.Minute, func(*Resources) int {
+func TestRunWithData(t *testing.T) {
+	if ci := os.Getenv("CI"); ci == "true" {
+		t.Skipf("skipping tester.RunWithData() because CI = %s", ci)
+	}
+	RunWithData(10*time.Minute, func(*Resources) int {
 		return 0
 	})
 }

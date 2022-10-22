@@ -25,7 +25,7 @@ var (
 
 func TestMain(m *testing.M) {
 	os.Exit(
-		tester.Run(5*time.Minute, func(r *tester.Resources) int {
+		tester.RunWithData(5*time.Minute, func(r *tester.Resources) int {
 			R = r
 			testServer = &CountServer{
 				db: db.Wrap(R.Pool),

@@ -12,13 +12,13 @@ import (
 )
 
 func TestCountAddQueue_processQueue(t *testing.T) {
-	stream, err := testClient.Add(testCTX)
+	stream, err := testClient.Add(R.CTX)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	c := &CountAddQueue{
-		ctx:    testCTX,
+		ctx:    R.CTX,
 		client: testClient,
 		queue:  make(chan *request, 500),
 		stream: stream,
@@ -32,13 +32,13 @@ func TestCountAddQueue_processQueue(t *testing.T) {
 	go func() {
 		time.Sleep(time.Second)
 		resp, err := c.stream.CloseAndRecv()
-		zerolog.Ctx(testCTX).Err(err).Stringer("response", resp).Msg("stream closed")
+		zerolog.Ctx(R.CTX).Err(err).Stringer("response", resp).Msg("stream closed")
 		c.wg.Done()
 	}()
 
 	for i := 0; i < 15; i++ {
 		time.Sleep(time.Second / 10)
-		c.queue <- &request{testCTX, &countv1.AddRequest{
+		c.queue <- &request{R.CTX, &countv1.AddRequest{
 			Method:           countv1.Method_DELETE,
 			Path:             "/foo/bar",
 			RequestTimestamp: timestamppb.Now(),
