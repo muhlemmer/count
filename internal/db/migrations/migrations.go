@@ -19,6 +19,10 @@ var (
 )
 
 func panicOnErr(err error) {
+	if err == migrate.ErrNoChange {
+		return
+	}
+
 	if err != nil {
 		panic(fmt.Errorf("db/migrations: %w", err))
 	}

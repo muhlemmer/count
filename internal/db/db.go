@@ -78,7 +78,7 @@ func New(ctx context.Context, dsn string) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{pool}, nil
+	return &DB{pool}, pool.Ping(ctx)
 }
 
 func (db *DB) Close() {

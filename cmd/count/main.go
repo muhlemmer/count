@@ -2,28 +2,83 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
+	"net"
 	"os"
-	"time"
+	"os/signal"
+	"strings"
+	"syscall"
 
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/muhlemmer/count/internal/db"
+	"github.com/muhlemmer/count/internal/db/migrations"
+	"github.com/muhlemmer/count/internal/service"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// Database configuration
+const (
+	MigrDriverEnvKey  = "MIGRATION_DRIVER"
+	DefaultMigrDriver = "pgx"
+	DSNEnvKey         = "DB_URL"
+	DefaultDSN        = "postgresql://muhlemmer@db:5432/muhlemmer?sslmode=disable"
+)
+
+func run() int {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill, syscall.SIGHUP)
 	defer cancel()
 
-	db, err := pgxpool.Connect(ctx, os.Getenv("DB_URL"))
+	logger := zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Logger()
+	ctx = logger.WithContext(ctx)
+
+	migrDriver, ok := os.LookupEnv(MigrDriverEnvKey)
+	if !ok {
+		migrDriver = DefaultMigrDriver
+	}
+	dsn, ok := os.LookupEnv(DSNEnvKey)
+	if !ok {
+		dsn = DefaultDSN
+	}
+
+	migrDSN := strings.Replace(dsn, "postgresql", migrDriver, 1)
+	migrations.Up(migrDSN)
+
+	db, err := db.New(ctx, dsn)
 	if err != nil {
-		log.Fatal("failed to connect database", err)
+		panic(err)
 	}
 	defer db.Close()
 
-	var now time.Time
-	err = db.QueryRow(ctx, "SELECT NOW()").Scan(&now)
+	server := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+	service.NewCountService(server, db)
+
+	lis, err := net.Listen("tcp", ":7777")
 	if err != nil {
-		log.Fatal("failed to execute query", err)
+		panic(err)
 	}
-	fmt.Println(now)
+
+	ec := make(chan error, 1)
+
+	go func() {
+		ec <- server.Serve(lis)
+	}()
+	logger.Info().Stringer("addr", lis.Addr()).Msg("grpc server listening")
+
+	select {
+	case <-ctx.Done():
+		server.GracefulStop()
+	case err = <-ec:
+		logger.Panic().Err(err).Msg("grpc server terminated unexpectedly")
+	}
+
+	err = <-ec
+	logger.Err(err).Msg("grpc server terminated")
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func main() {
+	os.Exit(run())
 }
