@@ -77,14 +77,15 @@ func (c *CountAddQueue) processQueue() {
 	c.stream.CloseSend()
 }
 
-// NewCountAddClient initiates a new Add stream on the CountServiceClient.
+// NewCountAddClient initiates a new CountServiceClient.Add stream on the ClientConn.
 // The returned CountAddClient can be used to queue and send countv1.AddRequest messages.
 // A seperate go routine is started for queue processing and automatic reconnection on failure.
 //
 // The context needs to remain available for automatic reconnection.
 // When the context is expired or canceled, automatic reconnection will fail.
 // However, existing entries in the queue will still be processed, as long as the stream does not break.
-func NewCountAddClient(ctx context.Context, client countv1.CountServiceClient, opts ...grpc.CallOption) (*CountAddQueue, error) {
+func NewCountAddClient(ctx context.Context, cc *grpc.ClientConn, opts ...grpc.CallOption) (*CountAddQueue, error) {
+	client := countv1.NewCountServiceClient(cc)
 	stream, err := client.Add(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("middleware; %w", err)
@@ -143,8 +144,8 @@ func (c *CountAddQueue) QueueOrDrop(ctx context.Context, req *countv1.AddRequest
 // the request message is dropped instead.
 // Dropped messages are reported on the logger in the request context,
 // using the Warn loglevel.
-func (c *CountAddQueue) Middleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (c *CountAddQueue) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.QueueOrDrop(r.Context(), &countv1.AddRequest{
 			Method:           countv1.Method(countv1.Method_value[r.Method]),
 			Path:             r.URL.Path,
@@ -152,7 +153,7 @@ func (c *CountAddQueue) Middleware(next http.Handler) http.HandlerFunc {
 		})
 
 		next.ServeHTTP(w, r)
-	}
+	})
 }
 
 // UnaryInterceptor for gRPC, which queues request data.

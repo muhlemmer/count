@@ -96,6 +96,8 @@ message GetPeriodTotalsResponse {
   repeated MethodCount method_counts = 1;
 }
 
+// CountService provides endpoints for request counting,
+// processing and metric retrieval.
 service CountService {
   // Add datapoints for request counting, over a streaming RPC.
   // Datapoints are stored asynchronous, to prevent blocking at the client side.

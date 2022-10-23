@@ -1,3 +1,4 @@
+// Package tester provides a testing framework for the complete project.
 package tester
 
 import (

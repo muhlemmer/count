@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	R          *tester.Resources
-	testClient countv1.CountServiceClient
-	testServer *grpc.Server
+	R              *tester.Resources
+	testClientConn *grpc.ClientConn
+	testClient     countv1.CountServiceClient
+	testServer     *grpc.Server
 )
 
 func TestMain(m *testing.M) {
@@ -43,7 +44,7 @@ func TestMain(m *testing.M) {
 		}()
 		defer testServer.GracefulStop()
 
-		cc, err := grpc.DialContext(R.CTX, "127.0.0.1:9999",
+		testClientConn, err = grpc.DialContext(R.CTX, "127.0.0.1:9999",
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithBlock(),
 		)
@@ -51,7 +52,7 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 
-		testClient = countv1.NewCountServiceClient(cc)
+		testClient = countv1.NewCountServiceClient(testClientConn)
 		return m.Run()
 	}))
 }
@@ -141,8 +142,8 @@ var testStream = []*countv1.AddRequest{
 
 func TestNewCountAddClient(t *testing.T) {
 	type args struct {
-		ctx    context.Context
-		client countv1.CountServiceClient
+		ctx context.Context
+		cc  *grpc.ClientConn
 	}
 	tests := []struct {
 		name    string
@@ -151,17 +152,17 @@ func TestNewCountAddClient(t *testing.T) {
 	}{
 		{
 			name:    "context error",
-			args:    args{R.ErrCTX, testClient},
+			args:    args{R.ErrCTX, testClientConn},
 			wantErr: true,
 		},
 		{
 			name: "success",
-			args: args{R.CTX, testClient},
+			args: args{R.CTX, testClientConn},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			q, err := NewCountAddClient(tt.args.ctx, tt.args.client)
+			q, err := NewCountAddClient(tt.args.ctx, tt.args.cc)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewCountAddClient() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -186,6 +187,27 @@ func TestCountAddQueue_QueueOrDrop(t *testing.T) {
 	}
 }
 
+func ExampleCountAddQueue_QueueOrDrop() {
+	cc, err := grpc.DialContext(context.TODO(), "count.muhlemmer.com:443",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	q, err := NewCountAddClient(context.TODO(), cc)
+	if err != nil {
+		panic(err)
+	}
+
+	q.QueueOrDrop(context.TODO(), &countv1.AddRequest{
+		Method:           countv1.Method_GET,
+		Path:             "/foo/bar",
+		RequestTimestamp: timestamppb.Now(),
+	})
+}
+
 func TestCountAddQueue_Middleware(t *testing.T) {
 	c := &CountAddQueue{
 		queue: make(chan *request),
@@ -198,7 +220,7 @@ func TestCountAddQueue_Middleware(t *testing.T) {
 
 	c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "Hello, world!")
-	}))(w, r)
+	})).ServeHTTP(w, r)
 
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
@@ -212,6 +234,27 @@ func TestCountAddQueue_Middleware(t *testing.T) {
 	if got := string(b); got != want {
 		t.Errorf("CountAddQueue.Middleware = %s, want %s", got, want)
 	}
+}
+
+func ExampleCountAddQueue_Middleware() {
+	cc, err := grpc.DialContext(context.TODO(), "count.muhlemmer.com:443",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	q, err := NewCountAddClient(context.TODO(), cc)
+	if err != nil {
+		panic(err)
+	}
+
+	s := &http.Server{
+		Addr:    ":8080",
+		Handler: q.Middleware(http.DefaultServeMux),
+	}
+	s.ListenAndServe()
 }
 
 func TestCountAddQueue_UnaryInterceptor(t *testing.T) {
@@ -228,4 +271,23 @@ func TestCountAddQueue_UnaryInterceptor(t *testing.T) {
 	if !handlerCalled {
 		t.Error("CountAddQueue.UnaryInterceptor handler not called")
 	}
+}
+
+func ExampleCountAddQueue_UnaryInterceptor() {
+	cc, err := grpc.DialContext(context.TODO(), "count.muhlemmer.com:443",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	q, err := NewCountAddClient(context.TODO(), cc)
+	if err != nil {
+		panic(err)
+	}
+
+	grpc.NewServer(grpc.ChainUnaryInterceptor(
+		q.UnaryInterceptor(),
+	))
 }
