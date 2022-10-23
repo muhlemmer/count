@@ -6,7 +6,7 @@
 
 Count is a request counting API, build for the Zitadel interview process.
 It provides endpoints for request counting of other services
-and retreiving the count metrics.
+and retrieving the count metrics.
 
 ## Features
 
@@ -47,7 +47,7 @@ q.QueueOrDrop(context.TODO(), &countv1.AddRequest{
 })
 ```
 
-HTTP servers can use Middleware instead:
+HTTP servers can use [Middleware](https://pkg.go.dev/github.com/muhlemmer/count/pkg/queue#CountAddQueue.Middleware) instead:
 
 ```
 s := &http.Server{
@@ -57,7 +57,7 @@ s := &http.Server{
 s.ListenAndServe()
 ```
 
-Or UnaryInterceptor for gRPC servers:
+Or [UnaryInterceptor](https://pkg.go.dev/github.com/muhlemmer/count/pkg/queue#CountAddQueue.UnaryInterceptor) for gRPC servers:
 
 ```
 grpc.NewServer(grpc.ChainUnaryInterceptor(
@@ -67,11 +67,10 @@ grpc.NewServer(grpc.ChainUnaryInterceptor(
 
 ### Retrieval clients
 
-Clients which want to retrieve metrics, can connect using gRPC, gRPC-web,
-json based REST or connect protocol. This versatility is provided by the
-[buf.build](https://buf.build/) and [connect.build](https://connect.build/) tools.
-
+Clients which want to retrieve metrics can use gRPC.
 API documenation is available at https://buf.build/muhlemmer/count/docs/main:count.v1.
+
+If this API where to be used in producion, I would consider moving to https://connect.build/ as gRPC and REST protocol, which for now has a too big impact.
 
 ### Server
 
